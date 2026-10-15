@@ -19,9 +19,11 @@ export function compactToolResults(msgs: Msg[], names: Map<string, string>): voi
     msgs[i] = {
       ...m,
       content: m.content.map((b): Block => {
-        if (b.type !== 'tool_result' || b.content.startsWith(MARK)) return b;
+        if (b.type !== 'tool_result') return b;
+        const textContent = typeof b.content === 'string' ? b.content : b.content.flatMap((c) => c.type === 'text' ? [c.text] : []).join('');
+        if (textContent.startsWith(MARK)) return b;
         const tool = names.get(b.tool_use_id) ?? 'herramienta';
-        return { ...b, content: `${MARK} ${tool} → ${Buffer.byteLength(b.content)} bytes, ${b.is_error ? 'error' : 'ok'}]` };
+        return { ...b, content: `${MARK} ${tool} → ${Buffer.byteLength(textContent)} bytes, ${b.is_error ? 'error' : 'ok'}]` };
       }),
     };
   }

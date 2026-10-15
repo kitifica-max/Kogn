@@ -2,10 +2,11 @@
 
 Agente personal de escritorio para macOS. Un personaje flotante que hace tareas por ti en tu Mac (organizar archivos, ejecutar comandos), recuerda lo que apruebas y, si tú lo activas, observa en qué trabajas para ayudarte mejor.
 
-Versión actual: **0.3.2**. Solo macOS. Las novedades de cada versión están en [Releases](https://github.com/kitifica-max/Agentik/releases). El agente puede ejecutar comandos y modificar archivos: lee [Seguridad y advertencias](#seguridad-y-advertencias) antes de usarlo.
+Versión actual: **0.3.3**. Solo macOS. Las novedades de cada versión están en [Releases](https://github.com/kitifica-max/Agentik/releases). El agente puede ejecutar comandos y modificar archivos: lee [Seguridad y advertencias](#seguridad-y-advertencias) antes de usarlo.
 
 ## Qué hace
 
+- **Ve tu pantalla y actúa en contexto** (Claude/Anthropic): con cada mensaje, Kogn toma una captura de tu pantalla principal y la usa para entender qué estás haciendo y reaccionar. Las capturas viven en RAM durante el día y se borran a medianoche; solo se guarda lo que el agente considera importante (vía Memoria). Requiere permiso de *Grabación de pantalla* — puedes activarlo desde la pestaña Ajustes.
 - **Ejecuta tareas** con el modelo que elijas (Claude, una API compatible con OpenAI o un modelo local de Ollama): organiza carpetas, mueve y copia archivos, escribe archivos y corre comandos de shell. Trabaja solo, sin pedirte permiso en cada paso (ver [Seguridad y advertencias](#seguridad-y-advertencias)).
 - **Comandos sin tokens:** unas palabras clave se resuelven en tu Mac, sin llamar al modelo: `resumen` (qué avanzaste hoy), `retoma` (dónde te quedaste en tus proyectos de git), `espacio` (qué ocupa tu disco y qué se puede liberar), `limpia` (borra de forma definitiva solo lo regenerable que mostró `espacio`: cachés y archivos de desarrollo, y vacía la Papelera; únicamente dentro de tu carpeta personal), `gasto` (cuánto llevas gastado) y `aprende` (propone recuerdos de tus proyectos y hábitos). También `organiza <carpeta autorizada>` (ej. `organiza Descargas`): mueve los archivos por tipo con reglas por defecto, sin modelo.
 - **Observa solo si lo activas** (ver [Activar el observador](#activar-el-observador)).

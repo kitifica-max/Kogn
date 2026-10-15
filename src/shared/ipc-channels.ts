@@ -61,6 +61,7 @@ export const IPC = {
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
   avatarChanged: 'avatar:changed',
+  openUrl: 'open:url',
 } as const;
 
 export const INVOKE_CHANNELS: string[] = [
@@ -75,6 +76,7 @@ export const INVOKE_CHANNELS: string[] = [
   IPC.conversationsList, IPC.conversationNew, IPC.conversationOpen, IPC.conversationDelete, IPC.conversationPin,
   IPC.chatAttachPick, IPC.chatAttachDrop, IPC.chatAttachRemove, IPC.chatAttachList, IPC.chatReveal,
   IPC.scriptsList, IPC.scriptPlan, IPC.scriptRun, IPC.scriptUndo, IPC.scriptPick, IPC.moduleInstall,
+  IPC.openUrl,
 ];
 export const SEND_CHANNELS: string[] = [IPC.bubbleToggle, IPC.windowMoveBy, IPC.windowDragEnd, IPC.appQuit];
 export const LISTEN_CHANNELS: string[] = [IPC.characterState, IPC.observerChanged, IPC.chatReply, IPC.chatThinking, IPC.chatClear, IPC.memoryProposed, IPC.memoryRefresh, IPC.avatarChanged, IPC.suggestionShow, IPC.fileEditProposed, IPC.moduleProgress];

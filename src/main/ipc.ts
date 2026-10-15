@@ -66,6 +66,7 @@ export interface IpcHandlers {
   moduleInstall: (id: string) => Promise<unknown>;
   settingsGet: () => unknown;
   settingsSet: (p: z.infer<typeof settingsPatch>) => unknown;
+  openUrl: (url: string) => void;
 }
 
 export function registerIpc(h: IpcHandlers): void {
@@ -210,5 +211,9 @@ export function registerIpc(h: IpcHandlers): void {
     const parsed = z.string().min(1).safeParse(raw);
     if (!parsed.success) return [];
     return h.configRemoveFolder(parsed.data);
+  });
+  ipcMain.handle(IPC.openUrl, (_e, raw: unknown) => {
+    const url = z.string().url().safeParse(raw);
+    if (url.success) h.openUrl(url.data);
   });
 }

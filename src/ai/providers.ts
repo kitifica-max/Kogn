@@ -4,11 +4,14 @@ import type { Usage } from './cost.js';
 
 // Formato interno de mensajes = bloques estilo Anthropic. Cada proveedor lo convierte a su API.
 export interface ToolDef { name: string; description: string; input_schema: Record<string, unknown> }
+export type ImageBlock = { type: 'image'; source: { type: 'base64'; media_type: string; data: string } };
+export type ToolResultContent = string | Array<{ type: 'text'; text: string } | ImageBlock>;
 export type Block =
   | { type: 'text'; text: string }
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
-  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean }
-  | { type: 'thinking'; thinking: string }; // razonamiento de modelos locales (gpt-oss): se devuelve tal cual en el turno siguiente
+  | { type: 'tool_result'; tool_use_id: string; content: ToolResultContent; is_error?: boolean }
+  | { type: 'thinking'; thinking: string } // razonamiento de modelos locales (gpt-oss): se devuelve tal cual en el turno siguiente
+  | ImageBlock;
 export interface Msg { role: 'user' | 'assistant'; content: string | Block[] }
 export interface ToolCall { id: string; name: string; input: Record<string, unknown> }
 
@@ -98,8 +101,11 @@ export function toOpenAiMessages(system: string, msgs: Msg[]): unknown[] {
       out.push({ role: 'assistant', content: text || null, ...(calls.length ? { tool_calls: calls } : {}) });
     } else {
       for (const b of m.content) {
-        if (b.type === 'tool_result') out.push({ role: 'tool', tool_call_id: b.tool_use_id, content: b.content });
-        else if (b.type === 'text') out.push({ role: 'user', content: b.text });
+        if (b.type === 'tool_result') {
+          const content = typeof b.content === 'string' ? b.content : b.content.flatMap((c) => c.type === 'text' ? [c.text] : []).join('');
+          out.push({ role: 'tool', tool_call_id: b.tool_use_id, content });
+        } else if (b.type === 'text') out.push({ role: 'user', content: b.text });
+        // image blocks: skip for non-vision OpenAI models
       }
     }
   }
@@ -168,8 +174,11 @@ export function toOllamaMessages(system: string, msgs: Msg[]): unknown[] {
       out.push({ role: 'assistant', content: text, ...(thinking ? { thinking } : {}), ...(calls.length ? { tool_calls: calls } : {}) });
     } else {
       for (const b of m.content) {
-        if (b.type === 'tool_result') out.push({ role: 'tool', tool_name: names.get(b.tool_use_id) ?? 'tool', content: b.content });
-        else if (b.type === 'text') out.push({ role: 'user', content: b.text });
+        if (b.type === 'tool_result') {
+          const content = typeof b.content === 'string' ? b.content : b.content.flatMap((c) => c.type === 'text' ? [c.text] : []).join('');
+          out.push({ role: 'tool', tool_name: names.get(b.tool_use_id) ?? 'tool', content });
+        } else if (b.type === 'text') out.push({ role: 'user', content: b.text });
+        // image blocks: skip for Ollama
       }
     }
   }

@@ -579,6 +579,23 @@
     });
     setNotif.checked = !!s.notifications;
     setSound.checked = !!s.sounds;
+    var verEl = document.getElementById('set-version');
+    if (verEl && s.version) verEl.textContent = 'Versión ' + s.version;
+    var screenStatus = document.getElementById('set-screen-status');
+    var screenBtn = document.getElementById('set-screen-open');
+    if (screenStatus) {
+      var sr = s.screenRecording;
+      if (sr === 'granted') {
+        screenStatus.textContent = '✓ Permiso concedido — Kogn puede ver tu pantalla.';
+        if (screenBtn) screenBtn.hidden = true;
+      } else if (sr === 'denied' || sr === 'restricted') {
+        screenStatus.textContent = '✗ Permiso denegado — actívalo en Ajustes del sistema.';
+        if (screenBtn) screenBtn.hidden = false;
+      } else {
+        screenStatus.textContent = 'Permiso no solicitado aún.';
+        if (screenBtn) screenBtn.hidden = false;
+      }
+    }
   }
 
   function loadSettings() {
@@ -587,6 +604,10 @@
 
   setNotif.addEventListener('change', function () { api.invoke(ch.settingsSet, { notifications: setNotif.checked }); });
   setSound.addEventListener('change', function () { api.invoke(ch.settingsSet, { sounds: setSound.checked }); });
+  var screenOpenBtn = document.getElementById('set-screen-open');
+  if (screenOpenBtn) screenOpenBtn.addEventListener('click', function () {
+    api.invoke(ch.openUrl, 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture');
+  });
   document.getElementById('set-test').addEventListener('click', function () { window.AgentikSounds.playPop(); });
 
   // ── Guía de inicio: se abre sola la primera vez; después con el botón "?" o desde Ajustes

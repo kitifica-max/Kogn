@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, Notification, safeStorage, screen, shell } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, Notification, safeStorage, screen, shell, systemPreferences } from 'electron';
 import { join } from 'node:path';
 import type { FSWatcher } from 'chokidar';
 import { openDb, getState, setState, type Db } from '../db/db.js';
@@ -81,8 +81,9 @@ function uniqueModelId(label: string): string {
 }
 
 // ── Ajustes (avatar, avisos, sonido) ───────────────────────────────────────────────────────
-function settingsState(): { avatar: Config['avatar']; notifications: boolean; sounds: boolean; onboarding_done: boolean } {
-  return { avatar: config.avatar, notifications: config.notifications, sounds: config.sounds, onboarding_done: config.onboarding_done };
+function settingsState(): { avatar: Config['avatar']; notifications: boolean; sounds: boolean; onboarding_done: boolean; version: string; screenRecording: string } {
+  const screenRecording = systemPreferences.getMediaAccessStatus('screen');
+  return { avatar: config.avatar, notifications: config.notifications, sounds: config.sounds, onboarding_done: config.onboarding_done, version: app.getVersion(), screenRecording };
 }
 
 function handleSettingsSet(p: Partial<ReturnType<typeof settingsState>>): unknown {
@@ -659,6 +660,7 @@ app.whenReady().then(() => {
     conversationPin: (id, pinned) => (setPinned(db, id, pinned) ? { ok: true } : { error: 'La conversación ya no existe' }),
     settingsGet: settingsState,
     settingsSet: handleSettingsSet,
+    openUrl: (url: string) => { shell.openExternal(url); },
   });
 
   setInterval(() => void observer.tick(), config.observer_poll_ms);

@@ -10,6 +10,7 @@ import { isSensitiveText } from '../memory/filters.js';
 import { isSensitivePath } from '../observer/filters.js';
 import { executeFileOp, organizeFolder, logAudit } from '../files/fileTools.js';
 import { runCommand, isBlockedCommand } from '../shell/shell.js';
+import { takeScreenshot, addToFlash } from '../observer/screenshot.js';
 import { recordUsage, profilePrice } from './cost.js';
 import { compactToolResults } from './compact.js';
 import { actionLine, actionsBlock } from './actions.js';
@@ -39,6 +40,7 @@ function readCapped(path: string, max: number): string {
 }
 
 const SYSTEM_PROMPT = `Eres Kogn, agente de escritorio autónomo en el Mac del usuario. Haces tareas reales con tus herramientas, sin pedir permiso.
+Con cada mensaje del usuario recibes una captura de pantalla de lo que está viendo en ese momento. Úsala para entender el contexto y, si ves algo relevante, actúa o comenta sin que te lo pidan.
 
 REGLAS:
 1. Directo: instrucción → ejecutas. Sin plática ni confirmar lo obvio. Español.
@@ -182,6 +184,11 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: 'take_screenshot',
+    description: 'Tomar una captura de pantalla nueva de la pantalla del usuario y verla. Úsalo cuando necesites ver el estado actual (distinto al del inicio del mensaje).',
+    input_schema: { type: 'object' as const, properties: {} },
+  },
+  {
     name: 'remember_memory',
     description: 'Proponer un recuerdo para guardar.',
     input_schema: {
@@ -273,7 +280,7 @@ export class AiClient {
     this.sessionHistory = messages.slice(-30);
   }
 
-  private async executeTool(name: string, input: Record<string, unknown>, budget: Budget, signal?: AbortSignal): Promise<{ success: boolean; message: string; ops?: number }> {
+  private async executeTool(name: string, input: Record<string, unknown>, budget: Budget, signal?: AbortSignal): Promise<{ success: boolean; message: string; ops?: number; imageB64?: string }> {
     const op = (r: { success: boolean; message: string }) => ({ ...r, ops: r.success ? 1 : 0 });
     switch (name) {
       case 'create_folder':
@@ -349,6 +356,12 @@ export class AiClient {
           return { success: false, message: `No se pudo leer: ${e instanceof Error ? e.message : e}` };
         }
       }
+      case 'take_screenshot': {
+        const b64 = await takeScreenshot();
+        if (!b64) return { success: false, message: 'No se pudo capturar pantalla. Verifica permiso de Grabación de pantalla en Ajustes del sistema.' };
+        addToFlash(b64);
+        return { success: true, message: 'Captura tomada.', imageB64: b64 };
+      }
       default:
         return { success: false, message: `Herramienta desconocida: ${name}` };
     }
@@ -368,6 +381,14 @@ export class AiClient {
 
     const { provider, profile } = this.resolveModel();
     const budget = budgetFor(profile);
+
+    // Captura de pantalla flash: solo para Anthropic (vision nativa); se almacena en RAM, no en DB.
+    let screenB64: string | null = null;
+    if (profile.provider === 'anthropic') {
+      screenB64 = await takeScreenshot();
+      if (screenB64) addToFlash(screenB64);
+    }
+
     const contextParts: string[] = [];
 
     const eventSummary = recentEventsSummary(this.db);
@@ -391,10 +412,18 @@ export class AiClient {
     this.sessionHistory.push({ role: 'user', content: userMessage });
 
     const price = profilePrice(profile);
-    const apiMessages: Msg[] = this.sessionHistory.map(m => ({
+    // Construir apiMessages: historial anterior en texto plano + último mensaje con imagen si hay captura
+    const apiMessages: Msg[] = this.sessionHistory.slice(0, -1).map(m => ({
       role: m.role as 'user' | 'assistant',
       content: m.content,
     }));
+    const lastUserContent = screenB64
+      ? [
+          { type: 'text' as const, text: userMessage },
+          { type: 'image' as const, source: { type: 'base64' as const, media_type: 'image/png', data: screenB64 } },
+        ]
+      : userMessage;
+    apiMessages.push({ role: 'user', content: lastUserContent });
 
     const toolNames = new Map<string, string>(); // tool_use_id → herramienta, para compactar resultados viejos
     const actions: string[] = []; // una línea por herramienta exitosa, para que el siguiente turno pueda "deshacer"
@@ -436,7 +465,7 @@ export class AiClient {
           continue;
         }
 
-        let result: { success: boolean; message: string; ops?: number };
+        let result: { success: boolean; message: string; ops?: number; imageB64?: string };
         try {
           result = await this.executeTool(tu.name, input, budget, signal);
         } catch (e) {
@@ -446,10 +475,16 @@ export class AiClient {
         if (result.success) { const l = actionLine(tu.name, input, result.message); if (l) actions.push(l); }
         // sin contenido de archivos en logs; solo herramienta y resultado corto
         console.log(`[agentik] ${tu.name} -> ${result.success ? 'ok' : 'ERROR'}: ${result.message.split('\n')[0].slice(0, 160)}`);
+        const toolContent = result.imageB64
+          ? [
+              { type: 'text' as const, text: result.message },
+              { type: 'image' as const, source: { type: 'base64' as const, media_type: 'image/png', data: result.imageB64 } },
+            ]
+          : result.message;
         toolResults.push({
           type: 'tool_result',
           tool_use_id: tu.id,
-          content: result.message,
+          content: toolContent,
           is_error: !result.success,
         });
       }

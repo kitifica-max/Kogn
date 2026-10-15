@@ -62,6 +62,7 @@ const IPC = {
   settingsGet: 'settings:get',
   settingsSet: 'settings:set',
   avatarChanged: 'avatar:changed',
+  openUrl: 'open:url',
 } as const;
 
 const INVOKE: string[] = [
@@ -76,6 +77,7 @@ const INVOKE: string[] = [
   IPC.conversationsList, IPC.conversationNew, IPC.conversationOpen, IPC.conversationDelete, IPC.conversationPin,
   IPC.chatAttachPick, IPC.chatAttachDrop, IPC.chatAttachRemove, IPC.chatAttachList, IPC.chatReveal,
   IPC.scriptsList, IPC.scriptPlan, IPC.scriptRun, IPC.scriptUndo, IPC.scriptPick, IPC.moduleInstall,
+  IPC.openUrl,
 ];
 const SEND: string[] = [IPC.bubbleToggle, IPC.windowMoveBy, IPC.windowDragEnd, IPC.appQuit];
 const LISTEN: string[] = [IPC.characterState, IPC.observerChanged, IPC.chatReply, IPC.chatThinking, IPC.chatClear, IPC.memoryProposed, IPC.memoryRefresh, IPC.avatarChanged, IPC.suggestionShow, IPC.fileEditProposed, IPC.moduleProgress];
