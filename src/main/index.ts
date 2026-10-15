@@ -1,3 +1,11 @@
+import { fstatSync, openSync } from 'node:fs';
+
+// Electron cierra fd 0/1/2 en apps empaquetadas (LSUIElement). El kernel reutiliza
+// esos fd para los pipes internos de spawn → EBADF. Mantenerlos abiertos lo evita.
+for (let fd = 0; fd < 3; fd++) {
+  try { fstatSync(fd); } catch { try { openSync('/dev/null', 'r+'); } catch {} }
+}
+
 import { app, BrowserWindow, dialog, globalShortcut, Notification, safeStorage, screen, shell, systemPreferences } from 'electron';
 import { join } from 'node:path';
 import type { FSWatcher } from 'chokidar';
