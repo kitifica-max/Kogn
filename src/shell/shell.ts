@@ -25,18 +25,18 @@ export function runCommand(
   return new Promise((resolve) => {
     const env = { ...process.env };
     delete env.ANTHROPIC_API_KEY;
+    // ponytail: sin detached — previene EBADF en Electron empaquetado con setsid(); el zsh sigue siendo login shell para heredar PATH del usuario
     const child = spawn('/bin/zsh', ['-lc', command], {
       cwd: opts.cwd,
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
-      detached: true,
     });
     let out = '';
     let timedOut = false;
     const add = (d: Buffer): void => { if (out.length < 200_000) out += d.toString(); };
     child.stdout.on('data', add);
     child.stderr.on('data', add);
-    const kill = (): void => { try { process.kill(-child.pid!, 'SIGKILL'); } catch { child.kill('SIGKILL'); } };
+    const kill = (): void => { child.kill('SIGKILL'); };
     const timer = setTimeout(() => { timedOut = true; kill(); }, opts.timeoutMs);
     let aborted = false;
     const onAbort = (): void => { aborted = true; kill(); }; // "Detener": mata el comando y todo lo que lanzó
