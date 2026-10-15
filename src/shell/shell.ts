@@ -1,8 +1,4 @@
-import { spawn } from 'node:child_process';
-import { readFileSync, unlinkSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { execFile } from 'node:child_process';
 
 // ponytail: red de seguridad best-effort contra desastres irreversibles, no un sandbox.
 const BLOCKED: RegExp[] = [
@@ -30,41 +26,37 @@ export function runCommand(
     const env = { ...process.env };
     delete env.ANTHROPIC_API_KEY;
 
-    // Electron cierra fd 0/1/2 en apps empaquetadas; libuv los reasigna para pipes;
-    // Chromium los vuelve a cerrar → EBADF al leer. Solución: sin pipes en el padre.
-    // El shell redirige stdout+stderr al archivo tmp antes de ejecutar el comando.
-    const tmp = join(tmpdir(), `kogn-${randomBytes(6).toString('hex')}.out`);
-    const wrapped = `(\n${command}\n) >${tmp} 2>&1`;
-
-    const child = spawn('/bin/zsh', ['-lc', wrapped], {
-      cwd: opts.cwd,
-      env,
-      stdio: 'ignore', // sin pipes → sin FDs que Chromium pueda corromper
-    });
-
+    // execFile con pipes: mismo patrón que activeWindow.ts (funciona en app empaquetada).
+    // spawn con stdio:'ignore' falla con EBADF en Electron porque libuv intenta
+    // manipular /dev/null en fds que Chromium ya cerró.
     let timedOut = false;
     let aborted = false;
 
+    const child = execFile(
+      '/bin/zsh', ['-lc', command],
+      { cwd: opts.cwd, env, maxBuffer: 200_000 },
+      (error, stdout, stderr) => {
+        const raw = ((stdout ?? '') + (stderr ? '\n' + stderr : '')).trim();
+        const output = clip(raw || '(sin salida)');
+        const code = error
+          ? (typeof error.code === 'number' ? error.code : null)
+          : 0;
+        resolve({ code, output, timedOut, aborted });
+      },
+    );
+
     const kill = (): void => { child.kill('SIGKILL'); };
     const timer = setTimeout(() => { timedOut = true; kill(); }, opts.timeoutMs);
+
     const onAbort = (): void => { aborted = true; kill(); };
     if (opts.signal?.aborted) onAbort();
     else opts.signal?.addEventListener('abort', onAbort, { once: true });
-    const done = (): void => { clearTimeout(timer); opts.signal?.removeEventListener('abort', onAbort); };
 
-    const readTmp = (): string => {
-      try {
-        const out = readFileSync(tmp, 'utf8').slice(0, 200_000);
-        try { unlinkSync(tmp); } catch { /* ignore */ }
-        return clip(out);
-      } catch { return '(sin salida)'; }
-    };
-
-    child.on('error', (e) => {
-      done();
-      try { unlinkSync(tmp); } catch { /* ignore */ }
-      resolve({ code: null, output: String(e), timedOut, aborted });
+    child.on('close', () => {
+      clearTimeout(timer);
+      opts.signal?.removeEventListener('abort', onAbort);
     });
-    child.on('close', (code) => { done(); resolve({ code, output: readTmp(), timedOut, aborted }); });
+
+    child.on('error', () => { /* el callback de execFile ya lo maneja */ });
   });
 }
