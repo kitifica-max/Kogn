@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 
 // ponytail: red de seguridad best-effort contra desastres irreversibles, no un sandbox.
 const BLOCKED: RegExp[] = [
@@ -18,45 +18,56 @@ function clip(s: string): string {
   return s.length > 20_000 ? `${s.slice(0, 8_000)}\n...[recortado]...\n${s.slice(-12_000)}` : s;
 }
 
+// ── Utility Process IPC ───────────────────────────────────────────────────────
+type WorkerMsg = { id: string; code: number | null; output: string; timedOut: boolean };
+type ShellPort = {
+  postMessage(d: unknown): void;
+  on(ev: 'message', cb: (msg: WorkerMsg) => void): void;
+};
+
+let workerPort: ShellPort | null = null;
+const pending = new Map<string, (r: WorkerMsg) => void>();
+
+export function initShellWorker(port: ShellPort): void {
+  workerPort = port;
+  port.on('message', (msg) => {
+    const cb = pending.get(msg.id);
+    if (cb) { pending.delete(msg.id); cb(msg); }
+  });
+}
+
 export function runCommand(
   command: string,
   opts: { cwd: string; timeoutMs: number; signal?: AbortSignal },
 ): Promise<{ code: number | null; output: string; timedOut: boolean; aborted?: boolean }> {
+  if (!workerPort) {
+    return Promise.resolve({ code: 1, output: 'Shell worker no disponible', timedOut: false });
+  }
+
   return new Promise((resolve) => {
-    const env = { ...process.env };
-    delete env.ANTHROPIC_API_KEY;
+    const env = { ...process.env } as Record<string, string>;
+    delete env['ANTHROPIC_API_KEY'];
 
-    // execFile con pipes: mismo patrón que activeWindow.ts (funciona en app empaquetada).
-    // spawn con stdio:'ignore' falla con EBADF en Electron porque libuv intenta
-    // manipular /dev/null en fds que Chromium ya cerró.
-    let timedOut = false;
-    let aborted = false;
+    const id = randomBytes(8).toString('hex');
+    let settled = false;
 
-    const child = execFile(
-      '/bin/zsh', ['-lc', command],
-      { cwd: opts.cwd, env, maxBuffer: 200_000 },
-      (error, stdout, stderr) => {
-        const raw = ((stdout ?? '') + (stderr ? '\n' + stderr : '')).trim();
-        const output = clip(raw || '(sin salida)');
-        const code = error
-          ? (typeof error.code === 'number' ? error.code : null)
-          : 0;
-        resolve({ code, output, timedOut, aborted });
-      },
-    );
-
-    const kill = (): void => { child.kill('SIGKILL'); };
-    const timer = setTimeout(() => { timedOut = true; kill(); }, opts.timeoutMs);
-
-    const onAbort = (): void => { aborted = true; kill(); };
-    if (opts.signal?.aborted) onAbort();
-    else opts.signal?.addEventListener('abort', onAbort, { once: true });
-
-    child.on('close', () => {
-      clearTimeout(timer);
+    const settle = (r: { code: number | null; output: string; timedOut: boolean; aborted?: boolean }): void => {
+      if (settled) return;
+      settled = true;
       opts.signal?.removeEventListener('abort', onAbort);
-    });
+      resolve(r);
+    };
 
-    child.on('error', () => { /* el callback de execFile ya lo maneja */ });
+    pending.set(id, (msg) => settle({ code: msg.code, output: clip(msg.output), timedOut: msg.timedOut }));
+
+    const onAbort = (): void => {
+      pending.delete(id);
+      settle({ code: null, output: '(detenido)', timedOut: false, aborted: true });
+    };
+
+    if (opts.signal?.aborted) { onAbort(); return; }
+    opts.signal?.addEventListener('abort', onAbort, { once: true });
+
+    workerPort!.postMessage({ id, command, cwd: opts.cwd, env, timeoutMs: opts.timeoutMs });
   });
 }

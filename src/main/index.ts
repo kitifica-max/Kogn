@@ -6,7 +6,7 @@ for (let fd = 0; fd < 3; fd++) {
   try { fstatSync(fd); } catch { try { openSync('/dev/null', 'r+'); } catch {} }
 }
 
-import { app, BrowserWindow, dialog, globalShortcut, Notification, safeStorage, screen, shell, systemPreferences } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, Notification, safeStorage, screen, shell, systemPreferences, utilityProcess } from 'electron';
 import { join } from 'node:path';
 import type { FSWatcher } from 'chokidar';
 import { openDb, getState, setState, type Db } from '../db/db.js';
@@ -40,12 +40,35 @@ import { scanDisk, formatReport, cleanLast } from '../disk/disk.js';
 import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { approveFileEdit, approveAllFileEdits, rejectFileEdit, rejectAllFileEdits, listFileEdits, getAuditLog } from '../files/fileTools.js';
+import { initShellWorker } from '../shell/shell.js';
 import type { CharacterState, Config, Memory, MemoryTipo, ModelProfile, ObserverStatus } from '../shared/types.js';
 
 // Las API keys ya no se leen de archivos .env: se configuran en la pestaña Modelo y se guardan cifradas.
 
 // Los datos viven en la carpeta histórica "agetik": cambiarla perdería DB, config y recuerdos.
 app.setPath('userData', join(app.getPath('appData'), 'agetik'));
+
+// ── Shell worker (Electron utilityProcess) ────────────────────────────────────
+// EBADF fix: en apps empaquetadas con LSUIElement, Chromium cierra fd 0/1/2 y
+// execFile en el main process falla. utilityProcess arranca un helper con fds limpios.
+function startShellWorker(): void {
+  const workerPath = app.isPackaged
+    ? join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'shell', 'shell-worker.js')
+    : join(__dirname, '../shell/shell-worker.js');
+  try {
+    const w = utilityProcess.fork(workerPath);
+    initShellWorker({
+      postMessage: (d) => w.postMessage(d),
+      on: (_ev, cb) => { w.on('message', cb); },
+    });
+    w.on('exit', (code) => {
+      console.warn('[kogn] shell worker salió con código', code, '— reiniciando en 1s');
+      setTimeout(startShellWorker, 1000);
+    });
+  } catch (e) {
+    console.error('[kogn] no pude iniciar shell worker:', e instanceof Error ? e.message : e);
+  }
+}
 
 const CHAR_SIZE = { width: 150, height: 160 };
 const BUBBLE_SIZE = { width: 360, height: 480 };
@@ -577,6 +600,7 @@ app.whenReady().then(() => {
   // ponytail: solo empaquetada; en dev registraría el binario de Electron como login item
   if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: config.launch_at_login });
 
+  startShellWorker();
   createWindows();
   if (cleaned.removed.length) {
     void dialog.showMessageBox({

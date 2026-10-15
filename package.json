@@ -1,6 +1,6 @@
 {
   "name": "agentik",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Kogn: agente personal de escritorio para macOS",
   "license": "MIT",
   "author": "Daniel Pineda",
@@ -30,6 +30,9 @@
       "!dist/builder-*",
       "config.json",
       "package.json"
+    ],
+    "asarUnpack": [
+      "dist/shell/shell-worker.js"
     ],
     "mac": {
       "identity": "-",
