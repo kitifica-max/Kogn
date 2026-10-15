@@ -19,14 +19,17 @@ function clip(s: string): string {
 }
 
 // ── Utility Process IPC ───────────────────────────────────────────────────────
-type WorkerMsg = { id: string; code: number | null; output: string; timedOut: boolean };
+type WorkerMsg = { id: string; type: 'cmd'; code: number | null; output: string; timedOut: boolean }
+               | { id: string; type: 'screenshot'; b64: string | null };
+
 type ShellPort = {
   postMessage(d: unknown): void;
   on(ev: 'message', cb: (msg: WorkerMsg) => void): void;
 };
 
 let workerPort: ShellPort | null = null;
-const pending = new Map<string, (r: WorkerMsg) => void>();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const pending = new Map<string, (r: any) => void>();
 
 export function initShellWorker(port: ShellPort): void {
   workerPort = port;
@@ -58,7 +61,8 @@ export function runCommand(
       resolve(r);
     };
 
-    pending.set(id, (msg) => settle({ code: msg.code, output: clip(msg.output), timedOut: msg.timedOut }));
+    pending.set(id, (msg: { code: number | null; output: string; timedOut: boolean }) =>
+      settle({ code: msg.code, output: clip(msg.output), timedOut: msg.timedOut }));
 
     const onAbort = (): void => {
       pending.delete(id);
@@ -68,6 +72,16 @@ export function runCommand(
     if (opts.signal?.aborted) { onAbort(); return; }
     opts.signal?.addEventListener('abort', onAbort, { once: true });
 
-    workerPort!.postMessage({ id, command, cwd: opts.cwd, env, timeoutMs: opts.timeoutMs });
+    workerPort!.postMessage({ type: 'cmd', id, command, cwd: opts.cwd, env, timeoutMs: opts.timeoutMs });
+  });
+}
+
+// Screenshot via worker: evita execFile en main process (EBADF con LSUIElement)
+export function takeScreenshotViaWorker(): Promise<string | null> {
+  if (!workerPort) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const id = randomBytes(8).toString('hex');
+    pending.set(id, (msg: { b64: string | null }) => resolve(msg.b64 ?? null));
+    workerPort!.postMessage({ type: 'screenshot', id });
   });
 }

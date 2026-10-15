@@ -9,8 +9,8 @@ import { approvedMemoriesForContext } from '../memory/memory.js';
 import { isSensitiveText } from '../memory/filters.js';
 import { isSensitivePath } from '../observer/filters.js';
 import { executeFileOp, organizeFolder, logAudit } from '../files/fileTools.js';
-import { runCommand, isBlockedCommand } from '../shell/shell.js';
-import { takeScreenshot, addToFlash } from '../observer/screenshot.js';
+import { runCommand, isBlockedCommand, takeScreenshotViaWorker } from '../shell/shell.js';
+import { addToFlash } from '../observer/screenshot.js';
 import { recordUsage, profilePrice } from './cost.js';
 import { compactToolResults } from './compact.js';
 import { actionLine, actionsBlock } from './actions.js';
@@ -357,7 +357,7 @@ export class AiClient {
         }
       }
       case 'take_screenshot': {
-        const b64 = await takeScreenshot();
+        const b64 = await takeScreenshotViaWorker();
         if (!b64) return { success: false, message: 'No se pudo capturar pantalla. Verifica permiso de Grabación de pantalla en Ajustes del sistema.' };
         addToFlash(b64);
         return { success: true, message: 'Captura tomada.', imageB64: b64 };
@@ -383,10 +383,15 @@ export class AiClient {
     const budget = budgetFor(profile);
 
     // Captura de pantalla flash: solo para Anthropic (vision nativa); se almacena en RAM, no en DB.
+    // Usa el worker para evitar EBADF en main process (LSUIElement cierra fd 0/1/2).
     let screenB64: string | null = null;
     if (profile.provider === 'anthropic') {
-      screenB64 = await takeScreenshot();
-      if (screenB64) addToFlash(screenB64);
+      try {
+        screenB64 = await takeScreenshotViaWorker();
+        if (screenB64) addToFlash(screenB64);
+      } catch {
+        screenB64 = null;
+      }
     }
 
     const contextParts: string[] = [];
