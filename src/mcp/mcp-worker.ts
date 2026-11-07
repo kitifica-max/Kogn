@@ -31,9 +31,18 @@ const OAUTH_KEYS = new Set(['CLIENT_ID', 'CLIENT_SECRET', 'SCOPES']); // van al 
 // Gmail publica 20 scopes; pedir todos asusta en el consentimiento. Leer/etiquetar + redactar basta para las herramientas.
 const GMAIL_SCOPES = 'https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.compose';
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-/** Mensaje corto para la UI: sin cuerpos JSON enormes, con el estado HTTP real si lo hubo. */
+/** Mensaje corto para la UI: el error de Google si el cuerpo lo trae, sin JSON enormes, con el estado HTTP del POST. */
 const httpErr = (c: Conn | undefined, e: unknown): string => {
-  const m = errMsg(e).replace(/\{[\s\S]{200,}$/, '{…}').slice(0, 300);
+  let m = errMsg(e);
+  const json = m.match(/\{[\s\S]*\}\s*$/);
+  if (json) {
+    try {
+      const body = JSON.parse(json[0]) as { error?: { code?: number; status?: string; message?: string }; result?: unknown };
+      const err = body.error;
+      m = m.slice(0, json.index) + (err ? `${err.status ?? err.code ?? ''} ${err.message ?? ''}`.trim() : body.result ? '(respuesta válida con estado de error)' : json[0].slice(0, 120));
+    } catch { m = m.replace(/\{[\s\S]{200,}$/, '{…}'); }
+  }
+  m = m.slice(0, 400);
   return c?.lastHttp ? `${m} [${c.lastHttp}]` : m;
 };
 
@@ -49,7 +58,7 @@ function diagFetch(c: Conn): (url: string | URL, init?: RequestInit) => Promise<
       data['scopes_supported'] = scopes.split(/[\s,]+/).filter(Boolean);
       return new Response(JSON.stringify(data), { status: 200, headers: { 'content-type': 'application/json' } });
     }
-    if (!res.ok) {
+    if (!res.ok && init?.method !== 'DELETE') { // el DELETE al cerrar sesión devuelve 405 en muchos servidores: no es el error
       const www = res.headers.get('www-authenticate');
       c.lastHttp = `HTTP ${res.status} en ${new URL(u).pathname}${www ? ` · ${www.slice(0, 200)}` : ''}`;
     }
@@ -157,8 +166,9 @@ async function connect(server: McpServer, env: Record<string, string>, oauth: Oa
       post({ type: 'status', server: server.id, ok: false, tools: [], needsAuth: true, error: 'Autoriza el acceso en el navegador' });
       return;
     }
+    const error = httpErr(c, e); // antes de cerrar: el cierre hace más peticiones
     await disconnect(server.id);
-    post({ type: 'status', server: server.id, ok: false, tools: [], error: httpErr(c, e) });
+    post({ type: 'status', server: server.id, ok: false, tools: [], error });
   }
 }
 
