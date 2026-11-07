@@ -58,7 +58,7 @@ function diagFetch(c: Conn): (url: string | URL, init?: RequestInit) => Promise<
       data['scopes_supported'] = scopes.split(/[\s,]+/).filter(Boolean);
       return new Response(JSON.stringify(data), { status: 200, headers: { 'content-type': 'application/json' } });
     }
-    if (!res.ok && init?.method !== 'DELETE') { // el DELETE al cerrar sesión devuelve 405 en muchos servidores: no es el error
+    if (!res.ok && init?.method === 'POST') { // solo el POST: el GET (stream SSE) y el DELETE (cierre) dan 405 en Google y el SDK los ignora
       const www = res.headers.get('www-authenticate');
       c.lastHttp = `HTTP ${res.status} en ${new URL(u).pathname}${www ? ` · ${www.slice(0, 200)}` : ''}`;
     }
