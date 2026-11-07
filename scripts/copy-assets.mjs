@@ -8,3 +8,4 @@ for (const id of ['nino', 'nina']) {
   for (const part of ['head', 'torso']) cpSync(`assets/${id}-${part}.svg`, `dist/renderer/assets/${id}-${part}.svg`);
 }
 cpSync('config.json', 'dist/main/config.json');
+cpSync('build/icon.png', 'dist/main/tray.png');

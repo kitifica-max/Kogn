@@ -529,7 +529,9 @@ html, body {
 
 .model-form label { display: flex; flex-direction: column; gap: 2px; color: var(--muted); font-size: 11px; }
 
+.model-form textarea { resize: vertical; min-height: 48px; }
 .model-form input,
+.model-form textarea,
 .model-form select {
   font: inherit;
   font-size: 12px;

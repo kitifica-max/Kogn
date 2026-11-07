@@ -31,6 +31,23 @@ export const profileSchema = z.object({
   num_ctx: z.number().int().min(512).max(1_000_000).optional(),
 });
 
+export const mcpServerSchema = z.object({
+  id: z.string().regex(/^[a-z0-9][a-z0-9._-]{0,48}$/i),
+  label: z.string().min(1).max(60),
+  url: z.string().url().optional(),
+  command: z.string().min(1).max(300).optional(),
+  args: z.array(z.string().max(300)).max(40).optional(),
+});
+
+export const scheduledTaskSchema = z.object({
+  id: z.string().min(1).max(40),
+  prompt: z.string().min(1).max(1000),
+  every: z.enum(['hora', 'dia', 'semana']),
+  at: z.string().regex(/^\d{1,2}:\d{2}$/).optional(),
+  weekday: z.number().int().min(0).max(6).optional(),
+  last_run: z.number().optional(),
+});
+
 const schema = z.object({
   allowed_folders: z.array(z.string()).default([]),
   excluded_apps: z.array(z.string()).default(DEFAULT_EXCLUDED_APPS),
@@ -48,6 +65,9 @@ const schema = z.object({
   habit_retention_days: z.number().int().min(7).max(365).default(60),
   models: z.array(profileSchema).default(DEFAULT_MODELS), // vacía es válido: el usuario puede quitarlos todos
   active_model: z.string().default(DEFAULT_MODELS[0]!.id),
+  mcp_servers: z.array(mcpServerSchema).default([]),
+  scheduled_tasks: z.array(scheduledTaskSchema).default([]),
+  tray_mode: z.boolean().default(false),
   custom_rules: z.array(z.object({
     app: z.string().min(1),
     title_contains: z.string().optional(),

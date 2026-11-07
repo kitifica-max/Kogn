@@ -6,7 +6,7 @@ for (let fd = 0; fd < 3; fd++) {
   try { fstatSync(fd); } catch { try { openSync('/dev/null', 'r+'); } catch {} }
 }
 
-import { app, BrowserWindow, dialog, globalShortcut, Notification, safeStorage, screen, shell, systemPreferences, utilityProcess } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, Menu, nativeImage, Notification, safeStorage, screen, shell, systemPreferences, Tray, utilityProcess } from 'electron';
 import { join } from 'node:path';
 import type { FSWatcher } from 'chokidar';
 import { openDb, getState, setState, type Db } from '../db/db.js';
@@ -41,12 +41,17 @@ import { homedir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { approveFileEdit, approveAllFileEdits, rejectFileEdit, rejectAllFileEdits, listFileEdits, getAuditLog } from '../files/fileTools.js';
 import { initShellWorker } from '../shell/shell.js';
+import { initMcpWorker, mcpConnect, mcpDisconnect, mcpStatus, mcpToolDefs, mcpCall, isMcpTool, parseEnvLines, parseCommand } from '../mcp/mcp.js';
+import type { McpServer, OauthBlob } from '../mcp/protocol.js';
+import { SCHEDULE_TOOL, applyScheduleTool, isDue, describeTask } from './tasks.js';
+import type { ToolExtension } from '../ai/client.js';
+import { logAudit } from '../files/fileTools.js';
 import type { CharacterState, Config, Memory, MemoryTipo, ModelProfile, ObserverStatus } from '../shared/types.js';
 
 // Las API keys ya no se leen de archivos .env: se configuran en la pestaña Modelo y se guardan cifradas.
 
 // Los datos viven en la carpeta histórica "agetik": cambiarla perdería DB, config y recuerdos.
-app.setPath('userData', join(app.getPath('appData'), 'agetik'));
+app.setPath('userData', process.env['KOGN_USER_DATA'] || join(app.getPath('appData'), 'agetik')); // KOGN_USER_DATA: pruebas e2e aisladas
 
 // ── Shell worker (Electron utilityProcess) ────────────────────────────────────
 // EBADF fix: en apps empaquetadas con LSUIElement, Chromium cierra fd 0/1/2 y
@@ -70,6 +75,27 @@ function startShellWorker(): void {
   }
 }
 
+// ── Worker MCP (integraciones: Gmail, Slack…) ─────────────────────────────────
+// Mismo motivo que el shell worker: los servidores MCP locales se lanzan con spawn.
+function startMcpWorker(): void {
+  const workerPath = join(__dirname, '../mcp/mcp-worker.js'); // dentro del asar: resuelve el SDK desde node_modules
+  try {
+    const w = utilityProcess.fork(workerPath);
+    console.log('[kogn] mcp worker iniciado:', workerPath);
+    initMcpWorker({ postMessage: (d) => w.postMessage(d), on: (_ev, cb) => { w.on('message', cb); } }, {
+      openUrl: (url) => { void shell.openExternal(url); },
+      saveOauth: (id, blob) => { try { secrets.set(`mcp:${id}:oauth`, JSON.stringify(blob)); } catch (e) { console.warn('[kogn] oauth no guardado:', e instanceof Error ? e.message : e); } },
+      onStatus: () => bubble?.webContents.send(IPC.mcpChanged, mcpState()),
+    });
+    w.on('exit', (code) => {
+      console.warn('[kogn] mcp worker salió con código', code, '— reiniciando en 1s');
+      setTimeout(() => { startMcpWorker(); connectAllMcp(); }, 1000);
+    });
+  } catch (e) {
+    console.error('[kogn] no pude iniciar mcp worker:', e instanceof Error ? e.message : e);
+  }
+}
+
 const CHAR_SIZE = { width: 150, height: 160 };
 const BUBBLE_SIZE = { width: 360, height: 480 };
 const RETENTION_EVERY_MS = 60 * 60 * 1000;
@@ -89,7 +115,110 @@ let fileWatcher: FSWatcher | null = null;
 process.on('uncaughtException', (e) => console.error('[agentik] error no capturado:', e instanceof Error ? e.stack ?? e.message : e));
 process.on('unhandledRejection', (e) => console.error('[agentik] promesa rechazada:', e instanceof Error ? e.message : e));
 let secrets: SecretStore;
+let tray: Tray | null = null;
 let pendingReply = false; // hay una respuesta sin leer: el personaje salta hasta que abras el chat
+
+// ── Integraciones MCP: servidores en config.json, claves y tokens OAuth cifrados aparte ──
+function envFor(id: string): Record<string, string> {
+  try { return JSON.parse(secrets.get(`mcp:${id}:env`) ?? '{}') as Record<string, string>; } catch { return {}; }
+}
+function oauthFor(id: string): OauthBlob | null {
+  try { const raw = secrets.get(`mcp:${id}:oauth`); return raw ? JSON.parse(raw) as OauthBlob : null; } catch { return null; }
+}
+function connectAllMcp(): void {
+  console.log(`[kogn] mcp: conectando ${config.mcp_servers.length} servidores`);
+  for (const s of config.mcp_servers) mcpConnect(s, envFor(s.id), oauthFor(s.id));
+}
+function mcpState(): unknown {
+  const st = mcpStatus();
+  return {
+    servers: config.mcp_servers.map((s) => {
+      const r = st[s.id] ?? { ok: false, tools: [], error: 'Sin conectar' };
+      return { id: s.id, label: s.label, url: s.url, command: s.command ? [s.command, ...(s.args ?? [])].join(' ') : undefined, hasEnv: secrets.has(`mcp:${s.id}:env`), ok: r.ok, tools: r.tools.length, error: r.error, needsAuth: r.needsAuth };
+    }),
+  };
+}
+function uniqueMcpId(label: string): string {
+  const base = label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'mcp';
+  let id = base;
+  for (let n = 2; config.mcp_servers.some((m) => m.id === id); n++) id = `${base}-${n}`;
+  return id;
+}
+function handleMcpSave(p: { id?: string; label: string; url?: string; command?: string; env?: string }): unknown {
+  const id = p.id ?? uniqueMcpId(p.label);
+  const cmd = p.command?.trim() ? parseCommand(p.command) : null;
+  if (!p.url && !cmd) return { error: 'Pon una URL o un comando' };
+  const server: McpServer = { id, label: p.label, ...(p.url ? { url: p.url } : {}), ...(cmd ? { command: cmd.command, args: cmd.args } : {}) };
+  try {
+    if (p.env?.trim()) secrets.set(`mcp:${id}:env`, JSON.stringify(parseEnvLines(p.env)));
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'No pude guardar las claves' };
+  }
+  const i = config.mcp_servers.findIndex((m) => m.id === id);
+  if (i >= 0) config.mcp_servers[i] = server;
+  else config.mcp_servers.push(server);
+  saveConfig(config);
+  mcpConnect(server, envFor(id), oauthFor(id));
+  return mcpState();
+}
+function handleMcpDelete(id: string): unknown {
+  if (!config.mcp_servers.some((m) => m.id === id)) return { error: 'Esa integración no existe' };
+  config.mcp_servers = config.mcp_servers.filter((m) => m.id !== id);
+  saveConfig(config);
+  mcpDisconnect(id);
+  secrets.delete(`mcp:${id}:env`);
+  secrets.delete(`mcp:${id}:oauth`);
+  return mcpState();
+}
+function handleMcpConnect(id: string): unknown {
+  const s = config.mcp_servers.find((m) => m.id === id);
+  if (!s) return { error: 'Esa integración no existe' };
+  mcpConnect(s, envFor(id), oauthFor(id));
+  return mcpState();
+}
+
+// ── Tareas programadas: el modelo las crea con schedule_task; el main las dispara cuando toca ──
+function tasksState(): unknown {
+  return { tasks: config.scheduled_tasks.map((t) => ({ id: t.id, text: describeTask(t), last_run: t.last_run ?? null })) };
+}
+function handleTasksDelete(id: string): unknown {
+  config.scheduled_tasks = config.scheduled_tasks.filter((t) => t.id !== id);
+  saveConfig(config);
+  return tasksState();
+}
+let runningTask = false;
+async function runDueTasks(): Promise<void> {
+  if (runningTask || chatAbort) return; // nunca encima de una conversación en curso
+  const due = config.scheduled_tasks.filter((t) => isDue(t));
+  if (!due.length) return;
+  runningTask = true;
+  try {
+    for (const t of due) {
+      t.last_run = Date.now();
+      saveConfig(config);
+      const r = await handleChat(t.prompt, { asAssistant: true });
+      bubble?.webContents.send(IPC.chatReply, `🕒 ${t.prompt}\n\n${r.reply}`);
+    }
+  } finally {
+    runningTask = false;
+  }
+}
+
+// Herramientas extra que el bucle del agente no conoce: integraciones MCP y schedule_task.
+const toolExtension: ToolExtension = {
+  tools: () => [SCHEDULE_TOOL, ...mcpToolDefs()],
+  async call(name, input, signal) {
+    if (name === 'schedule_task') {
+      const r = applyScheduleTool(config.scheduled_tasks, input);
+      if (r.changed) saveConfig(config);
+      return { success: r.success, message: r.message, ops: r.changed ? 1 : 0 };
+    }
+    if (!isMcpTool(name)) return null;
+    const r = await mcpCall(name, input, signal);
+    logAudit(db, 'mcp_call', `${name} (${r.success ? 'ok' : 'error'})`);
+    return { ...r, ops: r.success ? 1 : 0 };
+  },
+};
 
 // ── Modelos: perfiles en config.json, claves cifradas aparte ──────────────────────────────
 function activeProfile(): ModelProfile | undefined {
@@ -112,9 +241,9 @@ function uniqueModelId(label: string): string {
 }
 
 // ── Ajustes (avatar, avisos, sonido) ───────────────────────────────────────────────────────
-function settingsState(): { avatar: Config['avatar']; notifications: boolean; sounds: boolean; onboarding_done: boolean; version: string; screenRecording: string } {
+function settingsState(): { avatar: Config['avatar']; notifications: boolean; sounds: boolean; onboarding_done: boolean; tray_mode: boolean; version: string; screenRecording: string } {
   const screenRecording = systemPreferences.getMediaAccessStatus('screen');
-  return { avatar: config.avatar, notifications: config.notifications, sounds: config.sounds, onboarding_done: config.onboarding_done, version: app.getVersion(), screenRecording };
+  return { avatar: config.avatar, notifications: config.notifications, sounds: config.sounds, onboarding_done: config.onboarding_done, tray_mode: config.tray_mode, version: app.getVersion(), screenRecording };
 }
 
 function handleSettingsSet(p: Partial<ReturnType<typeof settingsState>>): unknown {
@@ -123,6 +252,7 @@ function handleSettingsSet(p: Partial<ReturnType<typeof settingsState>>): unknow
   if (p.notifications !== undefined) config.notifications = p.notifications;
   if (p.sounds !== undefined) config.sounds = p.sounds;
   if (p.onboarding_done !== undefined) config.onboarding_done = p.onboarding_done;
+  if (p.tray_mode !== undefined) { config.tray_mode = p.tray_mode; applyTrayMode(); }
   saveConfig(config);
   if (avatarChanged) character?.webContents.send(IPC.avatarChanged, config.avatar); // cambia sin reiniciar
   return settingsState();
@@ -245,6 +375,29 @@ function characterStateFor(s: ObserverStatus): CharacterState {
 function setCharacterState(state: CharacterState): void {
   const observing = observer.status().enabled && !observer.status().paused;
   character?.webContents.send(IPC.characterState, { state, observing, sound: config.sounds });
+  tray?.setTitle(state === 'pendiente' ? '•' : state === 'pensando' ? '…' : ''); // en modo icono: punto = respuesta sin leer
+}
+
+// ── Modo icono: el personaje se esconde y el chat cuelga del icono de la barra de menú ──
+function createTray(): void {
+  const icon = nativeImage.createFromPath(join(__dirname, 'tray.png')).resize({ width: 18, height: 18 });
+  tray = new Tray(icon);
+  tray.setToolTip('Kogn');
+  tray.on('click', toggleBubbleFromAvatar); // mismo truco que el avatar: el blur ya cerró el chat
+  tray.on('right-click', () => {
+    tray?.popUpContextMenu(Menu.buildFromTemplate([
+      { label: config.tray_mode ? 'Mostrar personaje flotante' : 'Solo icono en la barra (ocultar personaje)', click: () => { handleSettingsSet({ tray_mode: !config.tray_mode }); bubble?.webContents.send(IPC.chatThinking, false); } },
+      { label: observer.status().paused ? 'Reanudar observador' : 'Pausar observador', click: () => observer.togglePause() },
+      { type: 'separator' },
+      { label: 'Salir de Kogn', click: () => app.quit() },
+    ]));
+  });
+}
+
+function applyTrayMode(): void {
+  if (!character) return;
+  if (config.tray_mode) character.hide();
+  else character.show();
 }
 
 function pushStatus(s: ObserverStatus): void {
@@ -253,7 +406,15 @@ function pushStatus(s: ObserverStatus): void {
 }
 
 function positionBubble(): void {
-  if (!character || !bubble) return;
+  if (!bubble) return;
+  if (config.tray_mode && tray) { // bajo el icono de la barra de menú
+    const b = tray.getBounds();
+    const { workArea } = screen.getDisplayNearestPoint({ x: b.x, y: b.y });
+    const x = Math.max(workArea.x, Math.min(b.x + b.width / 2 - BUBBLE_SIZE.width / 2, workArea.x + workArea.width - BUBBLE_SIZE.width));
+    bubble.setPosition(Math.round(x), Math.round(workArea.y + 4));
+    return;
+  }
+  if (!character) return;
   const [cx, cy] = character.getPosition();
   const { workArea } = screen.getDisplayNearestPoint({ x: cx, y: cy });
   let x = cx + CHAR_SIZE.width - BUBBLE_SIZE.width;
@@ -303,6 +464,8 @@ function createWindows(): void {
   bubble.loadFile(join(__dirname, '../renderer/bubble.html'));
   bubble.on('blur', () => { bubbleBlurHiddenAt = Date.now(); bubble?.hide(); });
   bubble.on('show', clearPending); // al abrir el chat termina el aviso
+  createTray();
+  if (config.tray_mode) character.once('ready-to-show', applyTrayMode), character.hide();
 }
 
 // Hacer clic en el avatar le quita el foco al chat y lo oculta (blur) justo antes de que llegue el clic.
@@ -593,7 +756,7 @@ app.whenReady().then(() => {
     const profile = activeProfile();
     if (!profile) throw new Error('No hay ningún modelo configurado. Agrega uno en la pestaña Modelo.');
     return { profile, provider: createProvider(profile, keyFor(profile)) };
-  });
+  }, scriptBin, toolExtension);
   ai.loadHistory(modelContext(db)); // la conversación sigue donde la dejaste
   suggestions = new SuggestionEngine(db, config);
 
@@ -601,6 +764,8 @@ app.whenReady().then(() => {
   if (app.isPackaged) app.setLoginItemSettings({ openAtLogin: config.launch_at_login });
 
   startShellWorker();
+  startMcpWorker();
+  connectAllMcp();
   createWindows();
   if (cleaned.removed.length) {
     void dialog.showMessageBox({
@@ -693,10 +858,17 @@ app.whenReady().then(() => {
     settingsGet: settingsState,
     settingsSet: handleSettingsSet,
     openUrl: (url: string) => { shell.openExternal(url); },
+    mcpList: mcpState,
+    mcpSave: handleMcpSave,
+    mcpDelete: handleMcpDelete,
+    mcpConnect: handleMcpConnect,
+    tasksList: tasksState,
+    tasksDelete: handleTasksDelete,
   });
 
   setInterval(() => void observer.tick(), config.observer_poll_ms);
   setInterval(evaluateSuggestions, SUGGESTION_POLL_MS);
+  setInterval(() => void runDueTasks(), 60_000);
   purgeExpired(db, config.retention_hours, Date.now(), config.habit_retention_days);
   setInterval(() => purgeExpired(db, config.retention_hours, Date.now(), config.habit_retention_days), RETENTION_EVERY_MS);
   fileWatcher = startFileWatcher(config.allowed_folders, (p) => observer.recordFileChange(p));

@@ -18,6 +18,7 @@ const name = (p: unknown): string => (typeof p === 'string' && p ? basename(p) :
  * Solo nombres base (sin rutas completas) y nunca contenido de archivos. null = no se registra.
  */
 export function actionLine(tool: string, input: Record<string, unknown>, message: string): string | null {
+  if (tool.startsWith('mcp__')) return tool; // integración externa: solo el nombre (el resultado puede traer correos o mensajes)
   if (!MUTATING.has(tool)) return null;
   const paths = [input.folder, input.path, input.source, input.destination];
   if (tool === 'run_script' && input.params && typeof input.params === 'object') paths.push(...Object.values(input.params as Record<string, unknown>));

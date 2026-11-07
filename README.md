@@ -2,7 +2,7 @@
 
 Agente personal de escritorio para macOS. Un personaje flotante que hace tareas por ti en tu Mac (organizar archivos, ejecutar comandos), recuerda lo que apruebas y, si tú lo activas, observa en qué trabajas para ayudarte mejor.
 
-Versión actual: **0.3.7**. Solo macOS. Las novedades de cada versión están en [Releases](https://github.com/kitifica-max/Agentik/releases). El agente puede ejecutar comandos y modificar archivos: lee [Seguridad y advertencias](#seguridad-y-advertencias) antes de usarlo.
+Versión actual: **0.4.0**. Solo macOS. Las novedades de cada versión están en [Releases](https://github.com/kitifica-max/Agentik/releases). El agente puede ejecutar comandos y modificar archivos: lee [Seguridad y advertencias](#seguridad-y-advertencias) antes de usarlo.
 
 ## Qué hace
 
@@ -61,6 +61,26 @@ Si le pides que recuerde algo, propone un recuerdo. Solo se guarda si lo aprueba
 - **Varias conversaciones:** **☰ Chats** muestra tus conversaciones como tarjetas; **+ Nuevo** (o `Ctrl+Opción+N`) empieza una limpia. Guarda hasta **20**: al pasar el límite se borra la más vieja que no esté **fijada** (avisa desde la 18). Cada una tiene su propio contexto para el modelo, así que se gastan menos tokens.
 - **Detener:** mientras Kogn trabaja aparece **Detener** (o pulsa **Esc**). Corta la llamada al modelo y mata el comando que esté corriendo; lo que ya se alcanzó a hacer queda hecho y te lo dice.
 - **Borrar:** cada conversación se borra desde su tarjeta o con el botón del chat; en Ajustes se borran todas. Se elimina de verdad del disco, sin dejar copias en el archivo de la base de datos.
+
+## Integraciones (Gmail, Slack y cualquier MCP)
+
+En **Ajustes → Integraciones** conectas servicios externos por [MCP](https://modelcontextprotocol.io): sus herramientas aparecen al modelo como `mcp__<servicio>__<herramienta>` y Kogn las usa solo cuando la tarea lo pide («¿tengo algo urgente en Gmail?», «avisa en #equipo que ya subí el build»).
+
+- **Gmail:** servidor oficial de Google (`https://gmailmcp.googleapis.com/mcp/v1`). Google no registra clientes al vuelo: crea credenciales OAuth de tipo *Aplicación de escritorio* en Google Cloud, activa la API de Gmail y pega `CLIENT_ID=…` y `CLIENT_SECRET=…` en el formulario. La primera vez que Kogn use Gmail se abre el navegador para autorizar; la vuelta llega a `http://127.0.0.1:48219/cb/<id>`.
+- **Slack:** servidor local `@modelcontextprotocol/server-slack` con un token de bot (`SLACK_BOT_TOKEN`, `SLACK_TEAM_ID`) de una app creada en api.slack.com. El servidor oficial remoto de Slack no admite registro dinámico de clientes, por eso el preset usa el de token.
+- **Otros:** cualquier servidor remoto (URL, con `Authorization=Bearer …` o OAuth con cliente propio) o local (`npx -y paquete`, `uvx paquete`; las claves van como variables de entorno).
+
+Las claves y los tokens OAuth se guardan cifrados en el Llavero (igual que las API keys), nunca en `config.json`. Los servidores locales corren en un proceso auxiliar con el `PATH` de tu zsh (encuentra `npx` de Homebrew o nvm). Cada llamada queda en el registro de auditoría con el nombre de la herramienta, sin el contenido.
+
+## Tareas programadas y autonomía
+
+Pídele algo recurrente en el chat («cada mañana a las 9 revisa mi Gmail y dime qué es urgente», «cada hora revisa Descargas», «los lunes a las 10 resume la semana en Slack») y Kogn lo programa con la herramienta `schedule_task`. Las ejecuta solo, con todas sus herramientas, aunque no abras el chat: la respuesta aparece en la conversación y como aviso. Si la Mac estaba cerrada a esa hora, la tarea pendiente corre al abrir la app. Se ven y se quitan en **Ajustes → Tareas programadas** (o «quita la tarea de Gmail»). Máximo 20.
+
+El agente no pide permiso ni confirma lo obvio: si falta un dato asume lo razonable y lo dice al final, y verifica el resultado antes de darlo por hecho (hasta 100 rondas de herramientas por mensaje).
+
+## Modo icono en la barra de menú
+
+Kogn siempre tiene un icono en la barra de menú. En **Ajustes → Barra de menú** (o con clic derecho en el icono) activas *Solo icono*: el personaje flotante se oculta y el chat cuelga del icono. Un punto (•) junto al icono indica una respuesta sin leer; «…» que está trabajando. Clic derecho: mostrar u ocultar el personaje, pausar el observador, salir.
 
 ## Biblioteca de scripts
 

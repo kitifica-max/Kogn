@@ -48,6 +48,23 @@ export interface Shortcuts {
   new_chat: string;
 }
 
+export interface McpServerConfig {
+  id: string;
+  label: string;
+  url?: string;
+  command?: string;
+  args?: string[];
+}
+
+export interface ScheduledTaskConfig {
+  id: string;
+  prompt: string;
+  every: 'hora' | 'dia' | 'semana';
+  at?: string;
+  weekday?: number;
+  last_run?: number;
+}
+
 export interface Config {
   allowed_folders: string[];
   excluded_apps: string[];
@@ -67,6 +84,9 @@ export interface Config {
   habit_retention_days: number;
   models: ModelProfile[];
   active_model: string;
+  mcp_servers: McpServerConfig[];
+  scheduled_tasks: ScheduledTaskConfig[];
+  tray_mode: boolean;
 }
 
 export interface NewEvent {

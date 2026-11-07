@@ -168,6 +168,40 @@
         <button id="set-screen-open" class="btn btn-sm" type="button" hidden>Abrir preferencias</button>
       </div>
       <div class="section-divider"></div>
+      <div class="folders-header"><span class="folders-title">Barra de menú</span></div>
+      <label class="setting"><input id="set-tray" type="checkbox" /> <span>Solo icono en la barra de menú (oculta el personaje; el chat cuelga del icono)</span></label>
+      <div class="section-divider"></div>
+      <div class="folders-header">
+        <span class="folders-title">Integraciones</span>
+        <button id="mcp-add" class="btn btn-sm btn-ok" type="button">+ Agregar</button>
+      </div>
+      <p class="muted">Gmail, Slack o cualquier servidor MCP. Kogn usa sus herramientas solo, cuando la tarea lo pide.</p>
+      <div id="mcp-list" class="model-list"></div>
+      <form id="mcp-form" class="model-form" autocomplete="off" hidden>
+        <label>Servicio
+          <select id="mcpf-preset">
+            <option value="gmail">Gmail</option>
+            <option value="slack">Slack</option>
+            <option value="url">Otro remoto (URL)</option>
+            <option value="cmd">Local (comando)</option>
+          </select>
+        </label>
+        <label>Nombre <input id="mcpf-label" maxlength="60" required /></label>
+        <label id="mcpf-url-row">URL <input id="mcpf-url" placeholder="https://mcp.ejemplo.com/mcp" /></label>
+        <label id="mcpf-cmd-row">Comando <input id="mcpf-cmd" placeholder="npx -y @scope/servidor-mcp" /></label>
+        <label>Claves (opcional, una por línea) <textarea id="mcpf-env" rows="3" placeholder="NOMBRE=valor"></textarea></label>
+        <p id="mcpf-hint" class="muted"></p>
+        <div id="mcpf-error" class="perm" hidden></div>
+        <div class="file-edit-actions">
+          <button class="btn btn-sm btn-ok" type="submit">Guardar y conectar</button>
+          <button id="mcpf-cancel" class="btn btn-sm" type="button">Cancelar</button>
+        </div>
+      </form>
+      <div class="section-divider"></div>
+      <div class="folders-header"><span class="folders-title">Tareas programadas</span></div>
+      <p class="muted">Pídelo en el chat: "cada mañana a las 9 revisa mi Gmail y dime qué es urgente". Kogn las ejecuta solo.</p>
+      <div id="task-list" class="model-list"></div>
+      <div class="section-divider"></div>
       <div class="folders-header"><span class="folders-title">Guía de inicio</span></div>
       <div><button id="set-guide" class="btn btn-sm" type="button">Ver la guía otra vez</button></div>
       <p class="credits">Ilustraciones de los avatares: Designed by Freepik</p>

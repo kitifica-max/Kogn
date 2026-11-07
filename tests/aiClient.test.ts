@@ -197,3 +197,26 @@ describe('bucle del agente con cualquier proveedor', () => {
     expect(r.reply).toMatch(/límite de \d+ rondas/);
   });
 });
+
+describe('extensión de herramientas (integraciones y tareas)', () => {
+  it('las herramientas de la extensión viajan al modelo y sus llamadas se enrutan; lo demás sigue igual', async () => {
+    const db = memoryDb();
+    const calls: string[] = [];
+    const ext = {
+      tools: () => [{ name: 'mcp__gmail__search', description: 'Busca', input_schema: { type: 'object', properties: {} } }],
+      async call(name: string) { if (!name.startsWith('mcp__')) return null; calls.push(name); return { success: true, message: '2 correos', ops: 1 }; },
+    };
+    const { provider, requests } = script([
+      step('', [{ id: 'g1', name: 'mcp__gmail__search', input: { q: 'urgente' } }, { id: 'g2', name: 'volar', input: {} }]),
+      step('Tienes 2 correos urgentes'),
+    ]);
+    const ai = new AiClient(db, { ...cfg, allowed_folders: [allowed], memory_enabled: false }, join(base, 'backups'), () => ({ provider, profile: local }), undefined, ext);
+    const r = await ai.chat('¿algo urgente?');
+    expect(requests[0]!.tools.map((t) => t.name)).toContain('mcp__gmail__search');
+    expect(calls).toEqual(['mcp__gmail__search']);
+    const results = (requests[1]!.messages.at(-1)!.content as any[]);
+    expect(results.map((x) => x.is_error)).toEqual([false, true]);
+    expect(r.opsExecuted).toBe(1);
+    expect(r.reply).toBe('Tienes 2 correos urgentes');
+  });
+});

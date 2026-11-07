@@ -62,6 +62,13 @@ export const IPC = {
   settingsSet: 'settings:set',
   avatarChanged: 'avatar:changed',
   openUrl: 'open:url',
+  mcpList: 'mcp:list',
+  mcpSave: 'mcp:save',
+  mcpDelete: 'mcp:delete',
+  mcpConnect: 'mcp:connect',
+  mcpChanged: 'mcp:changed',
+  tasksList: 'tasks:list',
+  tasksDelete: 'tasks:delete',
 } as const;
 
 export const INVOKE_CHANNELS: string[] = [
@@ -77,6 +84,7 @@ export const INVOKE_CHANNELS: string[] = [
   IPC.chatAttachPick, IPC.chatAttachDrop, IPC.chatAttachRemove, IPC.chatAttachList, IPC.chatReveal,
   IPC.scriptsList, IPC.scriptPlan, IPC.scriptRun, IPC.scriptUndo, IPC.scriptPick, IPC.moduleInstall,
   IPC.openUrl,
+  IPC.mcpList, IPC.mcpSave, IPC.mcpDelete, IPC.mcpConnect, IPC.tasksList, IPC.tasksDelete,
 ];
 export const SEND_CHANNELS: string[] = [IPC.bubbleToggle, IPC.windowMoveBy, IPC.windowDragEnd, IPC.appQuit];
-export const LISTEN_CHANNELS: string[] = [IPC.characterState, IPC.observerChanged, IPC.chatReply, IPC.chatThinking, IPC.chatClear, IPC.memoryProposed, IPC.memoryRefresh, IPC.avatarChanged, IPC.suggestionShow, IPC.fileEditProposed, IPC.moduleProgress];
+export const LISTEN_CHANNELS: string[] = [IPC.characterState, IPC.observerChanged, IPC.chatReply, IPC.chatThinking, IPC.chatClear, IPC.memoryProposed, IPC.memoryRefresh, IPC.avatarChanged, IPC.suggestionShow, IPC.fileEditProposed, IPC.moduleProgress, IPC.mcpChanged];

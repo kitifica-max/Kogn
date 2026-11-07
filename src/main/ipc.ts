@@ -3,13 +3,21 @@ import { z } from 'zod';
 import { IPC } from '../shared/ipc-channels.js';
 import { profileSchema } from './config.js';
 
+const mcpSave = z.object({
+  id: z.string().min(1).max(60).optional(),
+  label: z.string().min(1).max(60),
+  url: z.string().url().optional(),
+  command: z.string().max(300).optional(),
+  env: z.string().max(8000).optional(),
+});
+
 const boolean = z.boolean();
 const delta = z.object({ dx: z.number().finite(), dy: z.number().finite() });
 const chatMsg = z.string().min(1).max(4000);
 const memId = z.number().int().positive();
 
 const modelSave = profileSchema.partial({ id: true }).extend({ api_key: z.string().max(500).optional() });
-const settingsPatch = z.object({ avatar: z.enum(['nino', 'nina']).optional(), notifications: z.boolean().optional(), sounds: z.boolean().optional(), onboarding_done: z.boolean().optional() });
+const settingsPatch = z.object({ avatar: z.enum(['nino', 'nina']).optional(), notifications: z.boolean().optional(), sounds: z.boolean().optional(), onboarding_done: z.boolean().optional(), tray_mode: z.boolean().optional() });
 const modelId = z.string().min(1).max(60);
 const scriptCall = z.object({ id: z.string().min(1).max(60), params: z.record(z.string().max(40), z.union([z.string().max(1000), z.number().finite()])).default({}) });
 
@@ -67,6 +75,12 @@ export interface IpcHandlers {
   settingsGet: () => unknown;
   settingsSet: (p: z.infer<typeof settingsPatch>) => unknown;
   openUrl: (url: string) => void;
+  mcpList: () => unknown;
+  mcpSave: (p: z.infer<typeof mcpSave>) => unknown;
+  mcpDelete: (id: string) => unknown;
+  mcpConnect: (id: string) => unknown;
+  tasksList: () => unknown;
+  tasksDelete: (id: string) => unknown;
 }
 
 export function registerIpc(h: IpcHandlers): void {
@@ -215,5 +229,23 @@ export function registerIpc(h: IpcHandlers): void {
   ipcMain.handle(IPC.openUrl, (_e, raw: unknown) => {
     const url = z.string().url().safeParse(raw);
     if (url.success) h.openUrl(url.data);
+  });
+  ipcMain.handle(IPC.mcpList, () => h.mcpList());
+  ipcMain.handle(IPC.mcpSave, (_e, raw: unknown) => {
+    const p = mcpSave.safeParse(raw);
+    return p.success ? h.mcpSave(p.data) : { error: 'Datos de la integración no válidos' };
+  });
+  ipcMain.handle(IPC.mcpDelete, (_e, raw: unknown) => {
+    const id = modelId.safeParse(raw);
+    return id.success ? h.mcpDelete(id.data) : { error: 'ID inválido' };
+  });
+  ipcMain.handle(IPC.mcpConnect, (_e, raw: unknown) => {
+    const id = modelId.safeParse(raw);
+    return id.success ? h.mcpConnect(id.data) : { error: 'ID inválido' };
+  });
+  ipcMain.handle(IPC.tasksList, () => h.tasksList());
+  ipcMain.handle(IPC.tasksDelete, (_e, raw: unknown) => {
+    const id = modelId.safeParse(raw);
+    return id.success ? h.tasksDelete(id.data) : { error: 'ID inválido' };
   });
 }

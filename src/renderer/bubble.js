@@ -579,6 +579,8 @@
     });
     setNotif.checked = !!s.notifications;
     setSound.checked = !!s.sounds;
+    var setTray = document.getElementById('set-tray');
+    if (setTray) setTray.checked = !!s.tray_mode;
     var verEl = document.getElementById('set-version');
     if (verEl && s.version) verEl.textContent = 'Versión ' + s.version;
     var screenStatus = document.getElementById('set-screen-status');
@@ -600,7 +602,156 @@
 
   function loadSettings() {
     api.invoke(ch.settingsGet).then(renderSettings);
+    loadMcp();
+    loadTasks();
   }
+  document.getElementById('set-tray').addEventListener('change', function (e) {
+    api.invoke(ch.settingsSet, { tray_mode: e.target.checked }).then(function () { showToast(e.target.checked ? 'Kogn vive ahora en la barra de menú' : 'Personaje flotante de vuelta'); });
+  });
+
+  // ── Integraciones (servidores MCP: Gmail, Slack, …)
+  var mcpList = document.getElementById('mcp-list');
+  var mcpForm = document.getElementById('mcp-form');
+  var mcpf = {
+    preset: document.getElementById('mcpf-preset'), label: document.getElementById('mcpf-label'),
+    url: document.getElementById('mcpf-url'), cmd: document.getElementById('mcpf-cmd'), env: document.getElementById('mcpf-env'),
+    hint: document.getElementById('mcpf-hint'), error: document.getElementById('mcpf-error'),
+    urlRow: document.getElementById('mcpf-url-row'), cmdRow: document.getElementById('mcpf-cmd-row'),
+  };
+  var MCP_PRESETS = {
+    gmail: { label: 'Gmail', url: 'https://gmailmcp.googleapis.com/mcp/v1', hint: 'Necesita un cliente OAuth tuyo: en console.cloud.google.com crea credenciales OAuth de tipo "Aplicación de escritorio", activa la API de Gmail y pega arriba CLIENT_ID=… y CLIENT_SECRET=…. La primera vez que Kogn use Gmail se abre el navegador para autorizar.' },
+    slack: { label: 'Slack', cmd: 'npx -y @modelcontextprotocol/server-slack', hint: 'Crea una app en api.slack.com/apps, instálala en tu workspace y pega arriba SLACK_BOT_TOKEN=xoxb-… y SLACK_TEAM_ID=T…. Permisos (scopes) típicos: channels:history, channels:read, chat:write, users:read.' },
+    url: { label: '', url: '', hint: 'Servidor MCP remoto (Streamable HTTP). Si pide token fijo: Authorization=Bearer xxx. Si usa OAuth con cliente propio: CLIENT_ID=… y CLIENT_SECRET=….' },
+    cmd: { label: '', cmd: '', hint: 'Servidor MCP local por stdio, p. ej. "npx -y @scope/paquete" o "uvx paquete". Las claves van como variables de entorno.' },
+  };
+  var mcpEditing = null;
+  function mcpError(t) { mcpf.error.textContent = t; mcpf.error.hidden = !t; }
+  function applyMcpPreset() {
+    var p = MCP_PRESETS[mcpf.preset.value] || MCP_PRESETS.url;
+    var isCmd = mcpf.preset.value === 'cmd' || mcpf.preset.value === 'slack';
+    mcpf.urlRow.hidden = isCmd;
+    mcpf.cmdRow.hidden = !isCmd;
+    mcpf.hint.textContent = p.hint;
+    if (!mcpEditing) { if (p.label) mcpf.label.value = p.label; mcpf.url.value = p.url || ''; mcpf.cmd.value = p.cmd || ''; }
+  }
+  function openMcpForm(s) {
+    mcpEditing = s || null;
+    mcpError('');
+    mcpf.preset.value = s ? (s.command ? 'cmd' : 'url') : 'gmail';
+    mcpf.preset.disabled = !!s;
+    mcpf.label.value = s ? s.label : '';
+    mcpf.url.value = s && s.url ? s.url : '';
+    mcpf.cmd.value = s && s.command ? s.command : '';
+    mcpf.env.value = '';
+    mcpf.env.placeholder = s && s.hasEnv ? 'Guardadas. Déjalo vacío para conservarlas' : 'NOMBRE=valor';
+    applyMcpPreset();
+    mcpForm.hidden = false;
+    mcpf.label.focus();
+  }
+  function renderMcp(state) {
+    if (!state || state.error) { if (state && state.error) showToast(state.error); return; }
+    mcpList.innerHTML = '';
+    if (state.servers.length === 0) {
+      var empty = document.createElement('p');
+      empty.className = 'model-empty';
+      empty.textContent = 'Sin integraciones. Pulsa "+ Agregar" para conectar Gmail, Slack u otra.';
+      mcpList.appendChild(empty);
+    }
+    state.servers.forEach(function (s) {
+      var item = document.createElement('div');
+      item.className = 'model-item' + (s.ok ? ' active' : '');
+      var main = document.createElement('div');
+      main.className = 'model-main';
+      var name = document.createElement('div');
+      name.className = 'model-name';
+      name.textContent = s.label;
+      var sub = document.createElement('div');
+      sub.className = s.ok ? 'model-sub' : 'model-warn';
+      sub.textContent = s.ok ? '✓ ' + s.tools + ' herramientas' : (s.needsAuth ? '🔑 ' : '✗ ') + (s.error || 'Sin conectar');
+      main.appendChild(name);
+      main.appendChild(sub);
+      item.appendChild(main);
+      if (!s.ok) {
+        var con = document.createElement('button');
+        con.className = 'btn btn-xs btn-ok';
+        con.textContent = s.needsAuth ? 'Autorizar' : 'Conectar';
+        con.onclick = function () { api.invoke(ch.mcpConnect, s.id).then(renderMcp); };
+        item.appendChild(con);
+      }
+      var edit = document.createElement('button');
+      edit.className = 'btn btn-xs';
+      edit.textContent = 'Editar';
+      edit.onclick = function () { openMcpForm(s); };
+      item.appendChild(edit);
+      var del = document.createElement('button');
+      del.className = 'btn btn-xs btn-danger';
+      del.textContent = '✗';
+      del.title = 'Quitar esta integración';
+      del.onclick = function () {
+        if (!window.confirm('¿Quitar "' + s.label + '"? También se borran sus claves y su autorización.')) return;
+        api.invoke(ch.mcpDelete, s.id).then(renderMcp);
+      };
+      item.appendChild(del);
+      mcpList.appendChild(item);
+    });
+  }
+  function loadMcp() { api.invoke(ch.mcpList).then(renderMcp); }
+  api.on(ch.mcpChanged, renderMcp);
+  document.getElementById('mcp-add').addEventListener('click', function () { openMcpForm(null); });
+  document.getElementById('mcpf-cancel').addEventListener('click', function () { mcpForm.hidden = true; });
+  mcpf.preset.addEventListener('change', applyMcpPreset);
+  mcpForm.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var payload = { label: mcpf.label.value.trim() };
+    if (mcpEditing) payload.id = mcpEditing.id;
+    if (mcpf.preset.value === 'cmd' || mcpf.preset.value === 'slack') payload.command = mcpf.cmd.value.trim();
+    else payload.url = mcpf.url.value.trim();
+    if (mcpf.env.value.trim()) payload.env = mcpf.env.value;
+    if (!payload.url && !payload.command) { mcpError('Pon una URL o un comando'); return; }
+    api.invoke(ch.mcpSave, payload).then(function (res) {
+      mcpf.env.value = '';
+      if (res && res.error) { mcpError(res.error); return; }
+      mcpForm.hidden = true;
+      renderMcp(res);
+      showToast('Integración guardada; conectando…');
+    });
+  });
+
+  // ── Tareas programadas (las crea el modelo con schedule_task; aquí solo se ven y se quitan)
+  var taskList = document.getElementById('task-list');
+  function renderTasks(state) {
+    if (!state || state.error) return;
+    taskList.innerHTML = '';
+    if (state.tasks.length === 0) {
+      var empty = document.createElement('p');
+      empty.className = 'model-empty';
+      empty.textContent = 'Sin tareas programadas.';
+      taskList.appendChild(empty);
+    }
+    state.tasks.forEach(function (t) {
+      var item = document.createElement('div');
+      item.className = 'model-item';
+      var main = document.createElement('div');
+      main.className = 'model-main';
+      var name = document.createElement('div');
+      name.className = 'model-name';
+      name.textContent = t.text;
+      var sub = document.createElement('div');
+      sub.className = 'model-sub';
+      sub.textContent = t.last_run ? 'Última vez: ' + new Date(t.last_run).toLocaleString() : 'Aún no se ha ejecutado';
+      main.appendChild(name);
+      main.appendChild(sub);
+      item.appendChild(main);
+      var del = document.createElement('button');
+      del.className = 'btn btn-xs btn-danger';
+      del.textContent = '✗';
+      del.title = 'Quitar esta tarea';
+      del.onclick = function () { api.invoke(ch.tasksDelete, t.id).then(renderTasks); };
+      item.appendChild(del);
+      taskList.appendChild(item);
+    });
+  }
+  function loadTasks() { api.invoke(ch.tasksList).then(renderTasks); }
 
   setNotif.addEventListener('change', function () { api.invoke(ch.settingsSet, { notifications: setNotif.checked }); });
   setSound.addEventListener('change', function () { api.invoke(ch.settingsSet, { sounds: setSound.checked }); });

@@ -55,6 +55,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.132.1",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "better-sqlite3": "^13.0.3",
     "chokidar": "^5.0.0",
     "papaparse": "^5.7.0",
