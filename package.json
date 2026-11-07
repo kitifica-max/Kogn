@@ -32,7 +32,8 @@
       "package.json"
     ],
     "asarUnpack": [
-      "dist/shell/shell-worker.js"
+      "dist/shell/shell-worker.js",
+      "dist/mcp/gmail-imap.py"
     ],
     "mac": {
       "identity": "-",

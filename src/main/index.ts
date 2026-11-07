@@ -125,9 +125,20 @@ function envFor(id: string): Record<string, string> {
 function oauthFor(id: string): OauthBlob | null {
   try { const raw = secrets.get(`mcp:${id}:oauth`); return raw ? JSON.parse(raw) as OauthBlob : null; } catch { return null; }
 }
+// Servidores incluidos en Kogn: el config guarda "builtin:<id>" y aquí se resuelve a la ruta real (cambia al empaquetar).
+const BUILTIN_MCP: Record<string, () => { command: string; args: string[] }> = {
+  'builtin:gmail-imap': () => ({
+    command: 'python3',
+    args: [app.isPackaged ? join(process.resourcesPath, 'app.asar.unpacked', 'dist', 'mcp', 'gmail-imap.py') : join(__dirname, '../mcp/gmail-imap.py')],
+  }),
+};
+function withBuiltin(s: McpServer): McpServer {
+  const b = s.command ? BUILTIN_MCP[s.command] : undefined;
+  return b ? { ...s, ...b() } : s;
+}
 function connectAllMcp(): void {
   console.log(`[kogn] mcp: conectando ${config.mcp_servers.length} servidores`);
-  for (const s of config.mcp_servers) mcpConnect(s, envFor(s.id), oauthFor(s.id));
+  for (const s of config.mcp_servers) mcpConnect(withBuiltin(s), envFor(s.id), oauthFor(s.id));
 }
 function mcpState(): unknown {
   const st = mcpStatus();
@@ -158,7 +169,7 @@ function handleMcpSave(p: { id?: string; label: string; url?: string; command?: 
   if (i >= 0) config.mcp_servers[i] = server;
   else config.mcp_servers.push(server);
   saveConfig(config);
-  mcpConnect(server, envFor(id), oauthFor(id));
+  mcpConnect(withBuiltin(server), envFor(id), oauthFor(id));
   return mcpState();
 }
 function handleMcpDelete(id: string): unknown {
@@ -173,7 +184,7 @@ function handleMcpDelete(id: string): unknown {
 function handleMcpConnect(id: string): unknown {
   const s = config.mcp_servers.find((m) => m.id === id);
   if (!s) return { error: 'Esa integración no existe' };
-  mcpConnect(s, envFor(id), oauthFor(id));
+  mcpConnect(withBuiltin(s), envFor(id), oauthFor(id));
   return mcpState();
 }
 

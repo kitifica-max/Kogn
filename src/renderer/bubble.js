@@ -619,6 +619,7 @@
     urlRow: document.getElementById('mcpf-url-row'), cmdRow: document.getElementById('mcpf-cmd-row'),
   };
   var MCP_PRESETS = {
+    gmailimap: { label: 'Gmail', cmd: 'builtin:gmail-imap', hint: 'Sin Google Cloud. En tu cuenta de Google: activa la verificación en dos pasos y crea una contraseña de aplicación (myaccount.google.com/apppasswords). Pega arriba GMAIL_USER=tu@gmail.com y GMAIL_APP_PASSWORD=las 16 letras. Solo lectura: busca y lee correos, no envía.' },
     gmail: { label: 'Gmail', url: 'https://gmailmcp.googleapis.com/mcp/v1', hint: 'En console.cloud.google.com: habilita Gmail API y Gmail MCP API (gmailmcp.googleapis.com), agrega tu correo como usuario de prueba y crea un cliente OAuth "Aplicación de escritorio" con "Use this client for an AI-powered agent" marcado. Pega arriba CLIENT_ID=… y CLIENT_SECRET=…. La primera vez que Kogn use Gmail se abre el navegador para autorizar.' },
     slack: { label: 'Slack', cmd: 'npx -y @modelcontextprotocol/server-slack', hint: 'Crea una app en api.slack.com/apps, instálala en tu workspace y pega arriba SLACK_BOT_TOKEN=xoxb-… y SLACK_TEAM_ID=T…. Permisos (scopes) típicos: channels:history, channels:read, chat:write, users:read.' },
     url: { label: '', url: '', hint: 'Servidor MCP remoto (Streamable HTTP). Si pide token fijo: Authorization=Bearer xxx. Si usa OAuth con cliente propio: CLIENT_ID=… y CLIENT_SECRET=….' },
@@ -628,16 +629,16 @@
   function mcpError(t) { mcpf.error.textContent = t; mcpf.error.hidden = !t; }
   function applyMcpPreset() {
     var p = MCP_PRESETS[mcpf.preset.value] || MCP_PRESETS.url;
-    var isCmd = mcpf.preset.value === 'cmd' || mcpf.preset.value === 'slack';
+    var isCmd = mcpf.preset.value === 'cmd' || mcpf.preset.value === 'slack' || mcpf.preset.value === 'gmailimap';
     mcpf.urlRow.hidden = isCmd;
-    mcpf.cmdRow.hidden = !isCmd;
+    mcpf.cmdRow.hidden = !isCmd || mcpf.preset.value === 'gmailimap'; // el servidor IMAP viene dentro de Kogn
     mcpf.hint.textContent = p.hint;
     if (!mcpEditing) { if (p.label) mcpf.label.value = p.label; mcpf.url.value = p.url || ''; mcpf.cmd.value = p.cmd || ''; }
   }
   function openMcpForm(s) {
     mcpEditing = s || null;
     mcpError('');
-    mcpf.preset.value = s ? (s.command ? 'cmd' : 'url') : 'gmail';
+    mcpf.preset.value = s ? (s.command === 'builtin:gmail-imap' ? 'gmailimap' : s.command ? 'cmd' : 'url') : 'gmailimap';
     mcpf.preset.disabled = !!s;
     mcpf.label.value = s ? s.label : '';
     mcpf.url.value = s && s.url ? s.url : '';
@@ -704,7 +705,8 @@
     e.preventDefault();
     var payload = { label: mcpf.label.value.trim() };
     if (mcpEditing) payload.id = mcpEditing.id;
-    if (mcpf.preset.value === 'cmd' || mcpf.preset.value === 'slack') payload.command = mcpf.cmd.value.trim();
+    if (mcpf.preset.value === 'gmailimap') payload.command = 'builtin:gmail-imap';
+    else if (mcpf.preset.value === 'cmd' || mcpf.preset.value === 'slack') payload.command = mcpf.cmd.value.trim();
     else payload.url = mcpf.url.value.trim();
     if (mcpf.env.value.trim()) payload.env = mcpf.env.value;
     if (!payload.url && !payload.command) { mcpError('Pon una URL o un comando'); return; }

@@ -9,3 +9,5 @@ for (const id of ['nino', 'nina']) {
 }
 cpSync('config.json', 'dist/main/config.json');
 cpSync('build/icon.png', 'dist/main/tray.png');
+mkdirSync('dist/mcp', { recursive: true });
+cpSync('src/mcp/gmail-imap.py', 'dist/mcp/gmail-imap.py'); // python3 no lee dentro del asar: va en asarUnpack
