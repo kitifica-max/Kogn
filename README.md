@@ -2,7 +2,7 @@
 
 Agente personal de escritorio para macOS. Un personaje flotante que hace tareas por ti en tu Mac (organizar archivos, ejecutar comandos), recuerda lo que apruebas y, si tú lo activas, observa en qué trabajas para ayudarte mejor.
 
-Versión actual: **0.4.0**. Solo macOS. Las novedades de cada versión están en [Releases](https://github.com/kitifica-max/Agentik/releases). El agente puede ejecutar comandos y modificar archivos: lee [Seguridad y advertencias](#seguridad-y-advertencias) antes de usarlo.
+Versión actual: **0.4.1**. Solo macOS. Las novedades de cada versión están en [Releases](https://github.com/kitifica-max/Agentik/releases). El agente puede ejecutar comandos y modificar archivos: lee [Seguridad y advertencias](#seguridad-y-advertencias) antes de usarlo.
 
 ## Qué hace
 
@@ -66,7 +66,7 @@ Si le pides que recuerde algo, propone un recuerdo. Solo se guarda si lo aprueba
 
 En **Ajustes → Integraciones** conectas servicios externos por [MCP](https://modelcontextprotocol.io): sus herramientas aparecen al modelo como `mcp__<servicio>__<herramienta>` y Kogn las usa solo cuando la tarea lo pide («¿tengo algo urgente en Gmail?», «avisa en #equipo que ya subí el build»).
 
-- **Gmail:** servidor oficial de Google (`https://gmailmcp.googleapis.com/mcp/v1`). Google no registra clientes al vuelo: crea credenciales OAuth de tipo *Aplicación de escritorio* en Google Cloud, activa la API de Gmail y pega `CLIENT_ID=…` y `CLIENT_SECRET=…` en el formulario. La primera vez que Kogn use Gmail se abre el navegador para autorizar; la vuelta llega a `http://127.0.0.1:48219/cb/<id>`.
+- **Gmail:** servidor oficial de Google (`https://gmailmcp.googleapis.com/mcp/v1`, en Developer Preview). En Google Cloud: habilita **Gmail API** y **Gmail MCP API** (`gmailmcp.googleapis.com`; sin esta segunda, todo da 403), configura la pantalla de consentimiento (External, tu correo como usuario de prueba) y crea un cliente OAuth de tipo *Aplicación de escritorio* con **«Use this client for an AI-powered agent»** marcado. Pega `CLIENT_ID=…` y `CLIENT_SECRET=…` en el formulario. La primera vez que Kogn use Gmail se abre el navegador para autorizar; la vuelta llega a `http://127.0.0.1:48219/cb/<id>`. Kogn pide los scopes `gmail.modify` y `gmail.compose` (cámbialos con `SCOPES=…`) y acceso offline para no volver a pedir sesión cada hora.
 - **Slack:** servidor local `@modelcontextprotocol/server-slack` con un token de bot (`SLACK_BOT_TOKEN`, `SLACK_TEAM_ID`) de una app creada en api.slack.com. El servidor oficial remoto de Slack no admite registro dinámico de clientes, por eso el preset usa el de token.
 - **Otros:** cualquier servidor remoto (URL, con `Authorization=Bearer …` o OAuth con cliente propio) o local (`npx -y paquete`, `uvx paquete`; las claves van como variables de entorno).
 

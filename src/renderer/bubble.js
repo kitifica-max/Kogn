@@ -619,7 +619,7 @@
     urlRow: document.getElementById('mcpf-url-row'), cmdRow: document.getElementById('mcpf-cmd-row'),
   };
   var MCP_PRESETS = {
-    gmail: { label: 'Gmail', url: 'https://gmailmcp.googleapis.com/mcp/v1', hint: 'Necesita un cliente OAuth tuyo: en console.cloud.google.com crea credenciales OAuth de tipo "Aplicación de escritorio", activa la API de Gmail y pega arriba CLIENT_ID=… y CLIENT_SECRET=…. La primera vez que Kogn use Gmail se abre el navegador para autorizar.' },
+    gmail: { label: 'Gmail', url: 'https://gmailmcp.googleapis.com/mcp/v1', hint: 'En console.cloud.google.com: habilita Gmail API y Gmail MCP API (gmailmcp.googleapis.com), agrega tu correo como usuario de prueba y crea un cliente OAuth "Aplicación de escritorio" con "Use this client for an AI-powered agent" marcado. Pega arriba CLIENT_ID=… y CLIENT_SECRET=…. La primera vez que Kogn use Gmail se abre el navegador para autorizar.' },
     slack: { label: 'Slack', cmd: 'npx -y @modelcontextprotocol/server-slack', hint: 'Crea una app en api.slack.com/apps, instálala en tu workspace y pega arriba SLACK_BOT_TOKEN=xoxb-… y SLACK_TEAM_ID=T…. Permisos (scopes) típicos: channels:history, channels:read, chat:write, users:read.' },
     url: { label: '', url: '', hint: 'Servidor MCP remoto (Streamable HTTP). Si pide token fijo: Authorization=Bearer xxx. Si usa OAuth con cliente propio: CLIENT_ID=… y CLIENT_SECRET=….' },
     cmd: { label: '', cmd: '', hint: 'Servidor MCP local por stdio, p. ej. "npx -y @scope/paquete" o "uvx paquete". Las claves van como variables de entorno.' },

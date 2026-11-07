@@ -23,11 +23,39 @@ interface Conn {
   oauth: OauthBlob;
   client: Client;
   transport: StdioClientTransport | StreamableHTTPClientTransport;
+  lastHttp?: string; // última respuesta no-2xx (estado + WWW-Authenticate): el SDK no la expone en el error
 }
 const conns = new Map<string, Conn>();
 
-const OAUTH_KEYS = new Set(['CLIENT_ID', 'CLIENT_SECRET']);
+const OAUTH_KEYS = new Set(['CLIENT_ID', 'CLIENT_SECRET', 'SCOPES']); // van al flujo OAuth, no como cabeceras
+// Gmail publica 20 scopes; pedir todos asusta en el consentimiento. Leer/etiquetar + redactar basta para las herramientas.
+const GMAIL_SCOPES = 'https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.compose';
 const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+/** Mensaje corto para la UI: sin cuerpos JSON enormes, con el estado HTTP real si lo hubo. */
+const httpErr = (c: Conn | undefined, e: unknown): string => {
+  const m = errMsg(e).replace(/\{[\s\S]{200,}$/, '{…}').slice(0, 300);
+  return c?.lastHttp ? `${m} [${c.lastHttp}]` : m;
+};
+
+// fetch envuelto: guarda el estado de las respuestas fallidas y permite acotar los scopes OAuth
+// (Google publica 20 scopes de Gmail y el SDK los pide todos; SCOPES=... en las claves los reemplaza).
+function diagFetch(c: Conn): (url: string | URL, init?: RequestInit) => Promise<Response> {
+  return async (url, init) => {
+    const res = await fetch(url, init);
+    const u = url.toString();
+    const scopes = c.env['SCOPES'] ?? (c.server.url && /gmailmcp\.googleapis\.com/.test(c.server.url) ? GMAIL_SCOPES : '');
+    if (res.ok && scopes && u.includes('/.well-known/oauth-protected-resource')) {
+      const data = await res.json() as Record<string, unknown>;
+      data['scopes_supported'] = scopes.split(/[\s,]+/).filter(Boolean);
+      return new Response(JSON.stringify(data), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (!res.ok) {
+      const www = res.headers.get('www-authenticate');
+      c.lastHttp = `HTTP ${res.status} en ${new URL(u).pathname}${www ? ` · ${www.slice(0, 200)}` : ''}`;
+    }
+    return res;
+  };
+}
 const clip = (s: string): string => (s.length > 20_000 ? `${s.slice(0, 12_000)}\n...[recortado]...\n${s.slice(-6_000)}` : s);
 
 // PATH del zsh de login: la app empaquetada no ve brew/nvm y "npx" no existiría.
@@ -61,7 +89,12 @@ function provider(c: Conn): OAuthClientProvider {
     saveClientInformation(info) { c.oauth.client = info; persist(); },
     tokens() { return c.oauth.tokens as OAuthTokens | undefined; },
     saveTokens(t) { c.oauth.tokens = t; persist(); },
-    redirectToAuthorization(url) { ensureLoopback(); post({ type: 'open-url', url: url.toString() }); },
+    redirectToAuthorization(url) {
+      ensureLoopback();
+      // Google solo da refresh token con access_type=offline (si no, pide iniciar sesión cada hora).
+      if (/\.google\.com$/.test(url.hostname)) { url.searchParams.set('access_type', 'offline'); url.searchParams.set('prompt', 'consent'); }
+      post({ type: 'open-url', url: url.toString() });
+    },
     saveCodeVerifier(v) { c.oauth.verifier = v; persist(); },
     codeVerifier() { if (!c.oauth.verifier) throw new Error('Falta el verificador PKCE; vuelve a conectar.'); return c.oauth.verifier; },
     invalidateCredentials(scope) {
@@ -90,7 +123,7 @@ function ensureLoopback(): void {
     const t = c.transport as StreamableHTTPClientTransport;
     t.finishAuth(code)
       .then(() => connect(c.server, c.env, c.oauth))
-      .catch((e) => post({ type: 'status', server: c.server.id, ok: false, tools: [], error: `OAuth falló: ${errMsg(e)}` }));
+      .catch((e) => post({ type: 'status', server: c.server.id, ok: false, tools: [], error: `OAuth falló: ${httpErr(c, e)}` }));
   }).listen(OAUTH_PORT, '127.0.0.1').on('error', (e) => post({ type: 'status', server: '*', ok: false, tools: [], error: `Puerto OAuth ocupado: ${errMsg(e)}` }));
 }
 
@@ -107,7 +140,7 @@ async function connect(server: McpServer, env: Record<string, string>, oauth: Oa
   const c: Conn = { server, env, oauth: oauth ?? {}, client, transport: null as never };
   if (server.url) {
     const headers = Object.fromEntries(Object.entries(env).filter(([k]) => !OAUTH_KEYS.has(k)));
-    c.transport = new StreamableHTTPClientTransport(new URL(server.url), { requestInit: { headers }, authProvider: provider(c) });
+    c.transport = new StreamableHTTPClientTransport(new URL(server.url), { requestInit: { headers }, authProvider: provider(c), fetch: diagFetch(c) });
   } else if (server.command) {
     c.transport = new StdioClientTransport({ command: server.command, args: server.args ?? [], env: { ...getDefaultEnvironment(), PATH: pathForSpawn(), ...env }, stderr: 'ignore' });
   } else {
@@ -125,7 +158,7 @@ async function connect(server: McpServer, env: Record<string, string>, oauth: Oa
       return;
     }
     await disconnect(server.id);
-    post({ type: 'status', server: server.id, ok: false, tools: [], error: errMsg(e) });
+    post({ type: 'status', server: server.id, ok: false, tools: [], error: httpErr(c, e) });
   }
 }
 
@@ -141,7 +174,7 @@ async function call(id: string, serverId: string, tool: string, args: Record<str
   } catch (e) {
     const needsAuth = e instanceof UnauthorizedError;
     if (needsAuth) post({ type: 'status', server: serverId, ok: false, tools: [], needsAuth: true, error: 'Autoriza el acceso en el navegador' });
-    post({ type: 'result', id, ok: false, text: needsAuth ? 'La integración necesita autorización: pide al usuario que la conecte en Ajustes → Integraciones.' : errMsg(e), needsAuth });
+    post({ type: 'result', id, ok: false, text: needsAuth ? 'La integración necesita autorización: pide al usuario que la conecte en Ajustes → Integraciones.' : httpErr(c, e), needsAuth });
   }
 }
 
